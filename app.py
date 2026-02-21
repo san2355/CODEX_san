@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
 
 import pandas as pd
+import plotly.express as px
 import requests
 import streamlit as st
-
-try:
-    import plotly.express as px
-except ModuleNotFoundError:
-    px = None
 
 
 st.set_page_config(layout="wide", page_title="Clinic RPM Workflow")
@@ -20,69 +17,15 @@ if "api_base" not in st.session_state:
 
 
 def api_get(path: str, **kwargs):
-    response = requests.get(f"{st.session_state.api_base}{path}", timeout=10, **kwargs)
-    response.raise_for_status()
-    return response
+    return requests.get(f"{st.session_state.api_base}{path}", timeout=10, **kwargs)
 
 
 def api_post(path: str, json_payload: dict):
-    response = requests.post(f"{st.session_state.api_base}{path}", json=json_payload, timeout=10)
-    response.raise_for_status()
-    return response
+    return requests.post(f"{st.session_state.api_base}{path}", json=json_payload, timeout=10)
 
 
 def severity_label(value: int) -> str:
     return {3: "🔴 High", 2: "🟡 Medium", 1: "🟢 Low"}.get(value, str(value))
-
-
-def render_trend_chart(frame: pd.DataFrame, metric: str, title: str):
-    chart_data = frame[["timestamp", metric]].set_index("timestamp")
-    if px is not None:
-        fig = px.line(frame, x="timestamp", y=metric, title=title)
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.caption("Plotly not installed; using Streamlit native chart.")
-        st.line_chart(chart_data, use_container_width=True)
-
-
-def render_bp_chart(frame: pd.DataFrame):
-    bp_data = frame[["timestamp", "systolic", "diastolic"]].set_index("timestamp")
-    if px is not None:
-        fig = px.line(frame, x="timestamp", y=["systolic", "diastolic"], title="Blood pressure")
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.caption("Plotly not installed; using Streamlit native chart.")
-        st.line_chart(bp_data, use_container_width=True)
-
-
-def check_backend() -> tuple[bool, str | None]:
-    candidate_urls = [st.session_state.api_base.rstrip("/")]
-    if "localhost" in candidate_urls[0]:
-        candidate_urls.append(candidate_urls[0].replace("localhost", "127.0.0.1"))
-    elif "127.0.0.1" in candidate_urls[0]:
-        candidate_urls.append(candidate_urls[0].replace("127.0.0.1", "localhost"))
-
-    last_error: str | None = None
-    for url in dict.fromkeys(candidate_urls):
-        try:
-            response = requests.get(f"{url}/health", timeout=2)
-            if response.ok:
-                st.session_state.api_base = url
-                return True, None
-        except requests.RequestException as exc:
-            last_error = str(exc)
-
-    return False, last_error
-
-
-backend_ok, backend_error = check_backend()
-if backend_ok:
-    st.success(f"Connected to API: {st.session_state.api_base}")
-else:
-    st.warning("Backend API is not reachable yet.")
-    st.code("uvicorn api:app --reload")
-    if backend_error:
-        st.caption(f"Last connection error: {backend_error}")
 
 
 triage_tab, patients_tab, patient_detail_tab, settings_tab = st.tabs(
@@ -91,54 +34,48 @@ triage_tab, patients_tab, patient_detail_tab, settings_tab = st.tabs(
 
 with triage_tab:
     st.subheader("Unresolved Alert Queue")
-    if not backend_ok:
-        st.info("Start the FastAPI backend first, then refresh this page.")
-    else:
-        try:
-            alerts = api_get("/alerts").json()
-            active_alerts = [a for a in alerts if a["status"] != "resolved"]
-            active_alerts.sort(key=lambda a: (a["severity"], a["created_at"]), reverse=True)
-        except Exception as exc:
-            st.error(f"Unable to load alerts: {exc}")
-            active_alerts = []
+    try:
+        alerts = api_get("/alerts").json()
+        active_alerts = [a for a in alerts if a["status"] != "resolved"]
+        active_alerts.sort(key=lambda a: (a["severity"], a["created_at"]), reverse=True)
+    except Exception as exc:
+        st.error(f"Unable to load alerts: {exc}")
+        active_alerts = []
 
-        if not active_alerts:
-            st.success("No unresolved alerts.")
+    if not active_alerts:
+        st.success("No unresolved alerts.")
 
-        for alert in active_alerts:
-            cols = st.columns([2, 3, 2, 4, 6])
-            cols[0].markdown(f"**#{alert['id']}**")
-            cols[1].write(alert["patient_id"])
-            cols[2].write(severity_label(alert["severity"]))
-            cols[3].write(alert["status"])
-            cols[4].write(alert["message"])
+    for alert in active_alerts:
+        cols = st.columns([2, 3, 2, 4, 6])
+        cols[0].markdown(f"**#{alert['id']}**")
+        cols[1].write(alert["patient_id"])
+        cols[2].write(severity_label(alert["severity"]))
+        cols[3].write(alert["status"])
+        cols[4].write(alert["message"])
 
-            action_cols = st.columns([1, 1, 1, 3])
-            if action_cols[0].button("Ack", key=f"ack_{alert['id']}"):
-                api_post(f"/alerts/{alert['id']}/ack", {"note": "Acknowledged from triage"})
-                st.rerun()
-            if action_cols[1].button("Snooze 60m", key=f"snooze_{alert['id']}"):
-                api_post(f"/alerts/{alert['id']}/snooze", {"snooze_minutes": 60, "note": "Snoozed from triage"})
-                st.rerun()
-            if action_cols[2].button("Resolve", key=f"resolve_{alert['id']}"):
-                api_post(f"/alerts/{alert['id']}/resolve", {"note": "Resolved from triage"})
-                st.rerun()
-            st.divider()
+        action_cols = st.columns([1, 1, 1, 3])
+        if action_cols[0].button("Ack", key=f"ack_{alert['id']}"):
+            api_post(f"/alerts/{alert['id']}/ack", {"note": "Acknowledged from triage"})
+            st.rerun()
+        if action_cols[1].button("Snooze 60m", key=f"snooze_{alert['id']}"):
+            api_post(f"/alerts/{alert['id']}/snooze", {"snooze_minutes": 60, "note": "Snoozed from triage"})
+            st.rerun()
+        if action_cols[2].button("Resolve", key=f"resolve_{alert['id']}"):
+            api_post(f"/alerts/{alert['id']}/resolve", {"note": "Resolved from triage"})
+            st.rerun()
+        st.divider()
 
 with patients_tab:
     st.subheader("Patient Census (Latest Vitals)")
-    if not backend_ok:
-        st.info("Backend unavailable. Start API and refresh.")
-    else:
-        try:
-            latest = api_get("/patients/latest").json()
-            latest_df = pd.DataFrame(latest)
-            if latest_df.empty:
-                st.info("No patient data yet. Run simulator first: python seed_simulator.py")
-            else:
-                st.dataframe(latest_df.sort_values("patient_id"), use_container_width=True)
-        except Exception as exc:
-            st.error(f"Unable to load patient data: {exc}")
+    try:
+        latest = api_get("/patients/latest").json()
+        latest_df = pd.DataFrame(latest)
+        if latest_df.empty:
+            st.info("No patient data yet. Run simulator first.")
+        else:
+            st.dataframe(latest_df.sort_values("patient_id"), use_container_width=True)
+    except Exception as exc:
+        st.error(f"Unable to load patient data: {exc}")
 
 with patient_detail_tab:
     st.subheader("Patient Detail")
@@ -148,41 +85,39 @@ with patient_detail_tab:
 
     patient_id = st.session_state.get("selected_patient", selected_patient)
 
-    if not backend_ok:
-        st.info("Backend unavailable. Start API and refresh.")
-    else:
-        try:
-            history = api_get(f"/patients/{patient_id}/history").json()
-            vitals_df = pd.DataFrame(history.get("vitals", []))
-            alerts_df = pd.DataFrame(history.get("alerts", []))
-            actions_df = pd.DataFrame(history.get("actions", []))
+    try:
+        history = api_get(f"/patients/{patient_id}/history").json()
+        vitals_df = pd.DataFrame(history.get("vitals", []))
+        alerts_df = pd.DataFrame(history.get("alerts", []))
+        actions_df = pd.DataFrame(history.get("actions", []))
 
-            if not vitals_df.empty:
-                vitals_df["timestamp"] = pd.to_datetime(vitals_df["timestamp"])
-                st.markdown("**7-day trends**")
-                trend_cols = st.columns(3)
-                for idx, metric in enumerate(["systolic", "heart_rate", "weight"]):
-                    with trend_cols[idx]:
-                        render_trend_chart(vitals_df, metric, metric.upper())
+        if not vitals_df.empty:
+            vitals_df["timestamp"] = pd.to_datetime(vitals_df["timestamp"])
+            st.markdown("**7-day trends**")
+            trend_cols = st.columns(3)
+            for idx, metric in enumerate(["systolic", "heart_rate", "weight"]):
+                fig = px.line(vitals_df, x="timestamp", y=metric, title=metric.upper())
+                trend_cols[idx].plotly_chart(fig, use_container_width=True)
 
-                st.markdown("**BP trend**")
-                render_bp_chart(vitals_df)
-            else:
-                st.info("No vitals in the last 7 days for this patient.")
+            st.markdown("**BP trend**")
+            bp_fig = px.line(vitals_df, x="timestamp", y=["systolic", "diastolic"], title="Blood pressure")
+            st.plotly_chart(bp_fig, use_container_width=True)
+        else:
+            st.info("No vitals in the last 7 days for this patient.")
 
-            st.markdown("**Alert history**")
-            if alerts_df.empty:
-                st.write("No alerts yet.")
-            else:
-                st.dataframe(alerts_df, use_container_width=True)
+        st.markdown("**Alert history**")
+        if alerts_df.empty:
+            st.write("No alerts yet.")
+        else:
+            st.dataframe(alerts_df, use_container_width=True)
 
-            st.markdown("**Action log**")
-            if actions_df.empty:
-                st.write("No logged actions.")
-            else:
-                st.dataframe(actions_df, use_container_width=True)
-        except Exception as exc:
-            st.error(f"Unable to load patient history: {exc}")
+        st.markdown("**Action log**")
+        if actions_df.empty:
+            st.write("No logged actions.")
+        else:
+            st.dataframe(actions_df, use_container_width=True)
+    except Exception as exc:
+        st.error(f"Unable to load patient history: {exc}")
 
 with settings_tab:
     st.subheader("Settings")
@@ -191,9 +126,5 @@ with settings_tab:
         st.session_state.api_base = new_url.rstrip("/")
         st.success(f"API base URL updated to {st.session_state.api_base}")
 
-    if st.button("Re-check backend", key="recheck_backend"):
-        st.rerun()
-
     st.caption("Run backend with: uvicorn api:app --reload")
-    st.caption("Seed data with: python seed_simulator.py")
     st.caption("Run UI with: streamlit run app.py")

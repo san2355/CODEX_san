@@ -71,11 +71,6 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(title="Clinic-Style RPM API")
 
 
-@app.get("/health")
-def healthcheck():
-    return {"status": "ok"}
-
-
 class VitalIn(BaseModel):
     patient_id: str
     systolic: int
