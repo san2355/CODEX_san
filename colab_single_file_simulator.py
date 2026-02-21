@@ -23,7 +23,6 @@ class SimulatorConfig:
     k_bounds: tuple = (3.0, 6.8)
     cr_bounds: tuple = (0.5, 4.0)
     gfr_bounds: tuple = (5.0, 140.0)
-    cr_pct_bounds: tuple = (-20.0, 80.0)
 
     age_bounds: tuple = (45, 85)
     baseline_sbp_bounds: tuple = (95.0, 140.0)
@@ -31,11 +30,10 @@ class SimulatorConfig:
     baseline_cr_bounds: tuple = (0.8, 2.2)
     baseline_k_bounds: tuple = (3.6, 5.2)
 
-    p_any_raasi: float = 0.80
-    p_arni_given_raasi: float = 0.28
-    p_any_bb: float = 0.84
-    p_any_mra: float = 0.45
-    p_sglt2i: float = 0.35
+    p_any_raasi: float = 0.82
+    p_any_bb: float = 0.88
+    p_any_mra: float = 0.55
+    p_sglt2i: float = 0.72
     dose_probs: tuple = (0.35, 0.30, 0.22, 0.13)
 
     c_raasi: float = 1.6
@@ -44,39 +42,19 @@ class SimulatorConfig:
     c_sglt2i: float = 1.0
 
     raasi_sbp_drop: float = -10.0
+    raasi_cr_rise: float = 0.12
     raasi_k_rise: float = 0.18
-    arni_sbp_extra_multiplier: float = 0.20
-    arni_k_extra_multiplier: float = 0.03
     bb_hr_drop: float = -18.0
     bb_sbp_drop: float = -4.0
     mra_sbp_drop: float = -2.5
+    mra_cr_rise: float = 0.10
     mra_k_rise: float = 0.32
     sglt2i_sbp_drop: float = -3.0
-
-    cr_prior_noise_sigma: float = 0.07
-    cr_pct_base_mean: float = 0.5
-    cr_pct_base_sd: float = 1.0
-    cr_pct_raas_low: float = 4.0
-    cr_pct_raas_ckd60: float = 6.0
-    cr_pct_raas_ckd30: float = 6.0
-    cr_pct_mra_low: float = 1.0
-    cr_pct_mra_ckd60: float = 2.0
-    sglt2_recent_start_prob: float = 0.15
-    sglt2_low: float = 2.0
-    sglt2_high: float = 6.0
-    cr_pct_noise_sd: float = 4.0
-
-    wrf_b0: float = -3.7
-    wrf_b60: float = 0.9
-    wrf_b30: float = 1.2
-    wrf_b_raas: float = 0.25
-    wrf_b_mra: float = 0.15
-    wrf_b_combo: float = 0.35
-    wrf_mag_low: float = 20.0
-    wrf_mag_high: float = 60.0
+    sglt2i_cr_rise: float = 0.03
 
     sbp_sens_sd: float = 0.20
     hr_sens_sd: float = 0.18
+    renal_sens_sd: float = 0.25
     hyperk_sens_sd: float = 0.22
 
     home_day_noise_sbp: float = 5.5
@@ -92,12 +70,17 @@ class SimulatorConfig:
     clinic_hr_offset_sd: float = 2.0
 
     hyperk_spike_intercept: float = -4.7
+    wrf_intercept: float = -4.3
     sx_hypot_intercept: float = -2.95
     sx_brady_intercept: float = -3.15
+
     hyperk_slope_egfr_low: float = 0.055
     hyperk_slope_raasi: float = 0.40
     hyperk_slope_mra: float = 0.75
     hyperk_slope_combo: float = 0.25
+    wrf_slope_egfr_low: float = 0.05
+    wrf_slope_raasi: float = 0.38
+    wrf_slope_mra: float = 0.22
 
     sx_tir_scale: float = 0.11
     sx_tir_midpoint: float = 10.0
@@ -147,47 +130,35 @@ def simulate_visit1(n_patients=10, cfg=None, save_csv=True, return_latent=False)
     hr0 = _trunc_normal(rng, 82, 11, *cfg.baseline_hr_bounds, n_patients)
     cr0 = _trunc_normal(rng, 1.25, 0.38, *cfg.baseline_cr_bounds, n_patients)
     k0 = _trunc_normal(rng, 4.25, 0.34, *cfg.baseline_k_bounds, n_patients)
+    egfr0 = egfr_ckd_epi_2021(cr0, age, sex)
 
     raasi = _sample_dose(rng, cfg.p_any_raasi, n_patients, cfg.dose_probs)
     bb = _sample_dose(rng, cfg.p_any_bb, n_patients, cfg.dose_probs)
     mra = _sample_dose(rng, cfg.p_any_mra, n_patients, cfg.dose_probs)
     sglt2i = (rng.random(n_patients) < cfg.p_sglt2i).astype(int)
-    raasi_is_arni = ((raasi > 0) & (rng.random(n_patients) < cfg.p_arni_given_raasi)).astype(int)
-
-    cr_prior = np.clip(cr0 * rng.lognormal(mean=0.0, sigma=cfg.cr_prior_noise_sigma, size=n_patients), *cfg.cr_bounds)
-    egfr_prior = np.clip(egfr_ckd_epi_2021(cr_prior, age, sex), *cfg.gfr_bounds)
-
-    base_drift = rng.normal(cfg.cr_pct_base_mean, cfg.cr_pct_base_sd, size=n_patients)
-    noise = rng.normal(0.0, cfg.cr_pct_noise_sd, size=n_patients)
-    raasi_sat = sat(raasi, cfg.c_raasi)
-    mra_sat = sat(mra, cfg.c_mra)
-    ckd60 = (egfr_prior < 60).astype(float)
-    ckd30 = (egfr_prior < 30).astype(float)
-    med_effect = raasi_sat * (cfg.cr_pct_raas_low + cfg.cr_pct_raas_ckd60 * ckd60 + cfg.cr_pct_raas_ckd30 * ckd30) + mra_sat * (cfg.cr_pct_mra_low + cfg.cr_pct_mra_ckd60 * ckd60)
-    sglt2_recent_start = ((sglt2i == 1) & (rng.random(n_patients) < cfg.sglt2_recent_start_prob)).astype(int)
-    sglt2_bump = np.where((sglt2i == 1) & (sglt2_recent_start == 1), rng.uniform(cfg.sglt2_low, cfg.sglt2_high, n_patients), 0.0)
-
-    wrf_logit = cfg.wrf_b0 + cfg.wrf_b60 * ckd60 + cfg.wrf_b30 * ckd30 + cfg.wrf_b_raas * raasi + cfg.wrf_b_mra * mra + cfg.wrf_b_combo * ((raasi > 0) & (mra > 0))
-    wrf_flag = rng.random(n_patients) < sigmoid(wrf_logit)
-    wrf_tail = np.where(wrf_flag, rng.uniform(cfg.wrf_mag_low, cfg.wrf_mag_high, n_patients), 0.0)
-
-    cr_pct_ch = np.clip(base_drift + med_effect + sglt2_bump + noise + wrf_tail, *cfg.cr_pct_bounds)
-    cr = np.clip(cr_prior * (1.0 + cr_pct_ch / 100.0), *cfg.cr_bounds)
-    gfr = np.clip(egfr_ckd_epi_2021(cr, age, sex), *cfg.gfr_bounds)
 
     sbp_sens = np.clip(rng.normal(1.0, cfg.sbp_sens_sd, size=n_patients), 0.4, 1.7)
     hr_sens = np.clip(rng.normal(1.0, cfg.hr_sens_sd, size=n_patients), 0.5, 1.8)
+    renal_sens = np.clip(rng.normal(1.0, cfg.renal_sens_sd, size=n_patients), 0.4, 1.8)
     hyperk_sens = np.clip(rng.normal(1.0, cfg.hyperk_sens_sd, size=n_patients), 0.5, 1.8)
-    raasi_s, bb_s, mra_s, sglt_s = sat(raasi, cfg.c_raasi), sat(bb, cfg.c_bb), sat(mra, cfg.c_mra), sat(sglt2i, cfg.c_sglt2i)
-    raasi_sbp_mult = 1.0 + cfg.arni_sbp_extra_multiplier * raasi_is_arni
-    raasi_k_mult = 1.0 + cfg.arni_k_extra_multiplier * raasi_is_arni
 
-    sbp_true = sbp0 + sbp_sens * (cfg.raasi_sbp_drop * raasi_s * raasi_sbp_mult + cfg.bb_sbp_drop * bb_s + cfg.mra_sbp_drop * mra_s + cfg.sglt2i_sbp_drop * sglt_s) + rng.normal(0, 3.0, n_patients)
+    raasi_s, bb_s, mra_s, sglt_s = sat(raasi, cfg.c_raasi), sat(bb, cfg.c_bb), sat(mra, cfg.c_mra), sat(sglt2i, cfg.c_sglt2i)
+
+    sbp_true = sbp0 + sbp_sens * (cfg.raasi_sbp_drop * raasi_s + cfg.bb_sbp_drop * bb_s + cfg.mra_sbp_drop * mra_s + cfg.sglt2i_sbp_drop * sglt_s) + rng.normal(0, 3.0, n_patients)
     hr_true = hr0 + hr_sens * (cfg.bb_hr_drop * bb_s) + rng.normal(0, 2.5, n_patients)
 
-    hyperk_logit = cfg.hyperk_spike_intercept + cfg.hyperk_slope_egfr_low * (80.0 - gfr) + cfg.hyperk_slope_raasi * raasi + cfg.hyperk_slope_mra * mra + cfg.hyperk_slope_combo * ((raasi > 0) & (mra > 0))
-    hyperk_spike = np.where(rng.random(n_patients) < sigmoid(hyperk_logit), rng.normal(0.8, 0.22, n_patients), 0.0)
-    k = np.clip(k0 + hyperk_sens * (cfg.raasi_k_rise * raasi_s * raasi_k_mult + cfg.mra_k_rise * mra_s + 0.10 * raasi_s * mra_s) + hyperk_spike, *cfg.k_bounds)
+    ckdf = np.clip((70.0 - egfr0) / 30.0, 0.0, 2.0)
+    cr_med_delta = renal_sens * (cfg.raasi_cr_rise * raasi_s * (1.0 + 0.7 * ckdf) + cfg.mra_cr_rise * mra_s * (1.0 + 0.4 * ckdf) + cfg.sglt2i_cr_rise * sglt_s)
+    wrf_logit = cfg.wrf_intercept + cfg.wrf_slope_egfr_low * (90.0 - egfr0) + cfg.wrf_slope_raasi * raasi + cfg.wrf_slope_mra * mra
+    wrf_flag = rng.random(n_patients) < sigmoid(wrf_logit)
+    wrf_multiplier = np.where(wrf_flag, rng.uniform(0.25, 0.55, n_patients), 0.0)
+    cr = np.clip(cr0 * (1.0 + cr_med_delta + wrf_multiplier), *cfg.cr_bounds)
+    gfr = np.clip(egfr_ckd_epi_2021(cr, age, sex), *cfg.gfr_bounds)
+
+    k_med_delta = hyperk_sens * (cfg.raasi_k_rise * raasi_s + cfg.mra_k_rise * mra_s + 0.10 * raasi_s * mra_s)
+    hyperk_logit = cfg.hyperk_spike_intercept + cfg.hyperk_slope_egfr_low * (80.0 - egfr0) + cfg.hyperk_slope_raasi * raasi + cfg.hyperk_slope_mra * mra + cfg.hyperk_slope_combo * ((raasi > 0) & (mra > 0))
+    hyperk_flag = rng.random(n_patients) < sigmoid(hyperk_logit)
+    k = np.clip(k0 + k_med_delta + np.where(hyperk_flag, rng.normal(0.8, 0.22, n_patients), 0.0), *cfg.k_bounds)
 
     home_records = []
     for i, pid in enumerate(ids):
@@ -214,12 +185,17 @@ def simulate_visit1(n_patients=10, cfg=None, save_csv=True, return_latent=False)
         home_df["hr_low"] = (home_df["hr_home"] < cfg.low_hr_threshold).astype(int)
         a = home_df.groupby("patient_id").agg(n=("sbp_home", "size"), sbp_low=("sbp_low", "sum"), hr_low=("hr_low", "sum"))
         tir = a.assign(TIR_low_sys=100.0 * a["sbp_low"] / a["n"], TIR_low_HR=100.0 * a["hr_low"] / a["n"])[["TIR_low_sys", "TIR_low_HR"]].reset_index().rename(columns={"patient_id": "Pat_ID"})
+
         clinic_rows = []
         for i, pid in enumerate(ids):
             recent = home_df[(home_df["patient_id"] == pid) & (home_df["day"] >= cfg.n_days_home - 2)]
             m_sbp = recent["sbp_home"].mean() if not recent.empty else sbp_true[i]
             m_hr = recent["hr_home"].mean() if not recent.empty else hr_true[i]
-            clinic_rows.append({"Pat_ID": pid, "SBP": m_sbp + rng.normal(cfg.whitecoat_sbp_mean, cfg.whitecoat_sbp_sd) + rng.normal(0, 3.0), "HR": m_hr + rng.normal(cfg.clinic_hr_offset_mean, cfg.clinic_hr_offset_sd) + rng.normal(0, 2.0)})
+            clinic_rows.append({
+                "Pat_ID": pid,
+                "SBP": m_sbp + rng.normal(cfg.whitecoat_sbp_mean, cfg.whitecoat_sbp_sd) + rng.normal(0, 3.0),
+                "HR": m_hr + rng.normal(cfg.clinic_hr_offset_mean, cfg.clinic_hr_offset_sd) + rng.normal(0, 2.0),
+            })
         clinic = pd.DataFrame(clinic_rows)
         clinic["SBP"] = clinic["SBP"].clip(*cfg.clinic_sbp_bounds)
         clinic["HR"] = clinic["HR"].clip(*cfg.clinic_hr_bounds)
@@ -231,7 +207,6 @@ def simulate_visit1(n_patients=10, cfg=None, save_csv=True, return_latent=False)
         "Sex": sex,
         "K": k,
         "Cr": cr,
-        "Cr_pct_ch": cr_pct_ch,
         "GFR": gfr,
         "RAASi": raasi,
         "BB": bb,
@@ -244,7 +219,7 @@ def simulate_visit1(n_patients=10, cfg=None, save_csv=True, return_latent=False)
     out["Sx_hypot"] = (rng.random(n_patients) < sigmoid(cfg.sx_hypot_intercept + cfg.sx_tir_scale * (out["TIR_low_sys"] - cfg.sx_tir_midpoint))).astype(int)
     out["Sx_brady"] = (rng.random(n_patients) < sigmoid(cfg.sx_brady_intercept + cfg.sx_tir_scale * (out["TIR_low_HR"] - cfg.sx_tir_midpoint))).astype(int)
 
-    out = out[["Pat_ID", "Visit", "Age", "Sex", "SBP", "HR", "TIR_low_sys", "TIR_low_HR", "K", "Cr", "Cr_pct_ch", "GFR", "Sx_hypot", "Sx_brady", "RAASi", "BB", "MRA", "SGLT2i"]]
+    out = out[["Pat_ID", "Visit", "Age", "Sex", "SBP", "HR", "TIR_low_sys", "TIR_low_HR", "K", "Cr", "GFR", "Sx_hypot", "Sx_brady", "RAASi", "BB", "MRA", "SGLT2i"]]
 
     if save_csv:
         out.to_csv("visit_table.csv", index=False)
@@ -256,7 +231,7 @@ def simulate_visit1(n_patients=10, cfg=None, save_csv=True, return_latent=False)
             tmp[["patient_id", "datetime", "sbp_home", "hr_home"]].to_csv("home_readings.csv", index=False)
 
     if return_latent:
-        latent = pd.DataFrame({"Pat_ID": ids, "Cr_prior": cr_prior, "eGFR_prior": egfr_prior})
+        latent = pd.DataFrame({"Pat_ID": ids, "Cr0": cr0, "eGFR0": egfr0})
         return out, home_df, latent
     return out, home_df
 
@@ -265,26 +240,16 @@ def calibration_report(n_patients=500, cfg=None):
     cfg = cfg or SimulatorConfig()
     df, _, latent = simulate_visit1(n_patients=n_patients, cfg=cfg, save_csv=False, return_latent=True)
     m = df.merge(latent, on="Pat_ID", how="left")
-
-    c = m["Cr_pct_ch"]
-    q25, q75 = np.quantile(c, [0.25, 0.75])
-    s1 = m["eGFR_prior"] < 30
-    s2 = (m["eGFR_prior"] >= 30) & (m["eGFR_prior"] < 60)
-    s3 = m["eGFR_prior"] >= 60
-
-    wrf1 = float((m.loc[s1, "Cr_pct_ch"] >= 30).mean()) if s1.any() else 0.0
-    wrf2 = float((m.loc[s2, "Cr_pct_ch"] >= 30).mean()) if s2.any() else 0.0
-    wrf3 = float((m.loc[s3, "Cr_pct_ch"] >= 30).mean()) if s3.any() else 0.0
-
+    cr_rise_30 = ((m["Cr"] - m["Cr0"]) / m["Cr0"]) >= 0.30
+    ckd = m["eGFR0"] < 60
     return {
-        "cr_pct_ch_mean": float(c.mean()),
-        "cr_pct_ch_median": float(c.median()),
-        "cr_pct_ch_iqr": [float(q25), float(q75)],
-        "pct_cr_pct_ch_ge_30": float((c >= 30).mean()),
-        "pct_cr_pct_ch_ge_30_egfr_prior_lt30": wrf1,
-        "pct_cr_pct_ch_ge_30_egfr_prior_30_59": wrf2,
-        "pct_cr_pct_ch_ge_30_egfr_prior_ge60": wrf3,
-        "wrf_monotonic_low_egfr_higher_rate": bool(wrf1 >= wrf2 >= wrf3),
+        "symptomatic_hypotension_rate": float(m["Sx_hypot"].mean()),
+        "k_gt_5_5_overall": float((m["K"] > 5.5).mean()),
+        "k_gt_6_0_overall": float((m["K"] > 6.0).mean()),
+        "k_gt_5_5_mra": float((m.loc[m["MRA"] > 0, "K"] > 5.5).mean()) if (m["MRA"] > 0).any() else 0.0,
+        "wrf_proxy_cr_rise_ge_30pct_overall": float(cr_rise_30.mean()),
+        "wrf_proxy_cr_rise_ge_30pct_ckd": float(cr_rise_30[ckd].mean()) if ckd.any() else 0.0,
+        "wrf_proxy_cr_rise_ge_30pct_nonckd": float(cr_rise_30[~ckd].mean()) if (~ckd).any() else 0.0,
     }
 
 
@@ -292,5 +257,14 @@ def calibration_report(n_patients=500, cfg=None):
 cfg = SimulatorConfig(seed=42)
 df, home_df = simulate_visit1(n_patients=10, cfg=cfg, save_csv=True)
 print(df.head())
+print("\nSummary stats")
+print("Mean SBP:", round(df["SBP"].mean(), 1))
+print("Mean HR:", round(df["HR"].mean(), 1))
+print("% on RAASi:", round((df["RAASi"] > 0).mean() * 100, 1))
+print("% on BB:", round((df["BB"] > 0).mean() * 100, 1))
+print("% on MRA:", round((df["MRA"] > 0).mean() * 100, 1))
+print("% on SGLT2i:", round((df["SGLT2i"] > 0).mean() * 100, 1))
+print("% K > 5.5:", round((df["K"] > 5.5).mean() * 100, 1))
+print("% Sx_hypot:", round(df["Sx_hypot"].mean() * 100, 1))
 print("\nCalibration N=500")
 print(calibration_report(n_patients=500, cfg=cfg))

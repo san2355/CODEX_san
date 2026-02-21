@@ -16,6 +16,5 @@ def test_physiologic_bounds():
     assert df["K"].between(*cfg.k_bounds).all()
     assert df["Cr"].between(*cfg.cr_bounds).all()
     assert df["GFR"].between(*cfg.gfr_bounds).all()
-    assert df["Cr_pct_ch"].between(*cfg.cr_pct_bounds).all()
     assert df["TIR_low_sys"].between(0, 100).all()
     assert df["TIR_low_HR"].between(0, 100).all()

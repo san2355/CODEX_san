@@ -11,21 +11,13 @@ def sigmoid(x):
 
 
 def compute_vitals_labs_expected(baseline, meds, effects, cfg, rng):
-    """Compute SBP/HR/K at visit-1.
-
-    Cr and eGFR are computed upstream from Cr_prior/Cr_pct_ch design.
-    """
     raasi_s = sat(meds["RAASi"], cfg.c_raasi)
     bb_s = sat(meds["BB"], cfg.c_bb)
     mra_s = sat(meds["MRA"], cfg.c_mra)
     sglt_s = sat(meds["SGLT2i"], cfg.c_sglt2i)
-    arni_flag = meds.get("RAASi_is_ARNI", np.zeros_like(meds["RAASi"]))
-
-    raasi_sbp_mult = 1.0 + cfg.arni_sbp_extra_multiplier * arni_flag
-    raasi_k_mult = 1.0 + cfg.arni_k_extra_multiplier * arni_flag
 
     sbp_delta = effects["sbp_sens"] * (
-        cfg.raasi_sbp_drop * raasi_s * raasi_sbp_mult
+        cfg.raasi_sbp_drop * raasi_s
         + cfg.bb_sbp_drop * bb_s
         + cfg.mra_sbp_drop * mra_s
         + cfg.sglt2i_sbp_drop * sglt_s
@@ -35,16 +27,32 @@ def compute_vitals_labs_expected(baseline, meds, effects, cfg, rng):
     sbp_expected = baseline["SBP0"] + sbp_delta + rng.normal(0, 3.0, size=sbp_delta.shape[0])
     hr_expected = baseline["HR0"] + hr_delta + rng.normal(0, 2.5, size=hr_delta.shape[0])
 
-    egfr_for_hyperk = baseline.get("eGFR_visit1", baseline["eGFR_prior"])
+    ckdf = np.clip((70.0 - baseline["eGFR0"]) / 30.0, 0.0, 2.0)
+    cr_med_delta = effects["renal_sens"] * (
+        cfg.raasi_cr_rise * raasi_s * (1.0 + 0.7 * ckdf)
+        + cfg.mra_cr_rise * mra_s * (1.0 + 0.4 * ckdf)
+        + cfg.sglt2i_cr_rise * sglt_s
+    )
+
+    wrf_logit = (
+        cfg.wrf_intercept
+        + cfg.wrf_slope_egfr_low * (90.0 - baseline["eGFR0"])
+        + cfg.wrf_slope_raasi * meds["RAASi"]
+        + cfg.wrf_slope_mra * meds["MRA"]
+    )
+    wrf_p = sigmoid(wrf_logit)
+    wrf_flag = rng.random(size=wrf_p.shape[0]) < wrf_p
+    wrf_multiplier = np.where(wrf_flag, rng.uniform(0.25, 0.55, size=wrf_p.shape[0]), 0.0)
+    cr_expected = baseline["Cr0"] * (1.0 + cr_med_delta + wrf_multiplier)
 
     k_med_delta = effects["hyperk_sens"] * (
-        cfg.raasi_k_rise * raasi_s * raasi_k_mult
+        cfg.raasi_k_rise * raasi_s
         + cfg.mra_k_rise * mra_s
         + 0.10 * raasi_s * mra_s
     )
     hyperk_logit = (
         cfg.hyperk_spike_intercept
-        + cfg.hyperk_slope_egfr_low * (80.0 - egfr_for_hyperk)
+        + cfg.hyperk_slope_egfr_low * (80.0 - baseline["eGFR0"])
         + cfg.hyperk_slope_raasi * meds["RAASi"]
         + cfg.hyperk_slope_mra * meds["MRA"]
         + cfg.hyperk_slope_combo * (meds["RAASi"] > 0) * (meds["MRA"] > 0)
@@ -57,6 +65,8 @@ def compute_vitals_labs_expected(baseline, meds, effects, cfg, rng):
     return {
         "SBP_true": sbp_expected,
         "HR_true": hr_expected,
+        "Cr_expected": cr_expected,
         "K_expected": k_expected,
+        "wrf_flag": wrf_flag.astype(int),
         "hyperk_flag": hyperk_flag.astype(int),
     }

@@ -1,6 +1,5 @@
-# Colab quick entrypoint.
-# If you want a single copy/paste cell with no file/module dependencies,
-# use `colab_single_file_simulator.py` instead.
+# Colab-friendly entrypoint cell contents:
+# !pip install -q pandas numpy matplotlib
 
 from hfref_simulator.config import SimulatorConfig
 from hfref_simulator.simulate_visit1 import calibration_report, simulate_visit1
