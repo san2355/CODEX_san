@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
 
 import pandas as pd
+import plotly.express as px
 import requests
 import streamlit as st
-
-try:
-    import plotly.express as px
-except ModuleNotFoundError:
-    px = None
 
 
 st.set_page_config(layout="wide", page_title="Clinic RPM Workflow")
@@ -20,39 +17,15 @@ if "api_base" not in st.session_state:
 
 
 def api_get(path: str, **kwargs):
-    response = requests.get(f"{st.session_state.api_base}{path}", timeout=10, **kwargs)
-    response.raise_for_status()
-    return response
+    return requests.get(f"{st.session_state.api_base}{path}", timeout=10, **kwargs)
 
 
 def api_post(path: str, json_payload: dict):
-    response = requests.post(f"{st.session_state.api_base}{path}", json=json_payload, timeout=10)
-    response.raise_for_status()
-    return response
+    return requests.post(f"{st.session_state.api_base}{path}", json=json_payload, timeout=10)
 
 
 def severity_label(value: int) -> str:
     return {3: "🔴 High", 2: "🟡 Medium", 1: "🟢 Low"}.get(value, str(value))
-
-
-def render_trend_chart(frame: pd.DataFrame, metric: str, title: str):
-    chart_data = frame[["timestamp", metric]].set_index("timestamp")
-    if px is not None:
-        fig = px.line(frame, x="timestamp", y=metric, title=title)
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.caption("Plotly not installed; using Streamlit native chart.")
-        st.line_chart(chart_data, use_container_width=True)
-
-
-def render_bp_chart(frame: pd.DataFrame):
-    bp_data = frame[["timestamp", "systolic", "diastolic"]].set_index("timestamp")
-    if px is not None:
-        fig = px.line(frame, x="timestamp", y=["systolic", "diastolic"], title="Blood pressure")
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.caption("Plotly not installed; using Streamlit native chart.")
-        st.line_chart(bp_data, use_container_width=True)
 
 
 triage_tab, patients_tab, patient_detail_tab, settings_tab = st.tabs(
@@ -123,11 +96,12 @@ with patient_detail_tab:
             st.markdown("**7-day trends**")
             trend_cols = st.columns(3)
             for idx, metric in enumerate(["systolic", "heart_rate", "weight"]):
-                with trend_cols[idx]:
-                    render_trend_chart(vitals_df, metric, metric.upper())
+                fig = px.line(vitals_df, x="timestamp", y=metric, title=metric.upper())
+                trend_cols[idx].plotly_chart(fig, use_container_width=True)
 
             st.markdown("**BP trend**")
-            render_bp_chart(vitals_df)
+            bp_fig = px.line(vitals_df, x="timestamp", y=["systolic", "diastolic"], title="Blood pressure")
+            st.plotly_chart(bp_fig, use_container_width=True)
         else:
             st.info("No vitals in the last 7 days for this patient.")
 
