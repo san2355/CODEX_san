@@ -1,3 +1,30 @@
+# Single Colab cell (copy/paste): Streamlit telemonitoring app + public URL (NO ngrok)
+# - Uses Cloudflare Quick Tunnel via cloudflared
+# - Writes app.py then runs streamlit, prints a shareable URL
+
+import os
+import re
+import subprocess
+import sys
+import textwrap
+import time
+
+# 1) Install deps
+subprocess.check_call([
+    sys.executable,
+    "-m",
+    "pip",
+    "install",
+    "-q",
+    "streamlit",
+    "streamlit-autorefresh",
+    "pandas",
+    "numpy",
+    "plotly",
+])
+
+# 2) Write Streamlit app
+app_code = r'''
 import random
 from datetime import datetime, timedelta
 
@@ -246,3 +273,74 @@ st.download_button(
     file_name="vitals_export.csv",
     mime="text/csv",
 )
+'''
+with open("app.py", "w", encoding="utf-8") as f:
+    f.write(textwrap.dedent(app_code))
+
+# 3) Install cloudflared (for public URL without ngrok)
+if not os.path.exists("/usr/local/bin/cloudflared"):
+    subprocess.check_call(
+        [
+            "wget",
+            "-q",
+            "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
+            "-O",
+            "/usr/local/bin/cloudflared",
+        ]
+    )
+    subprocess.check_call(["chmod", "+x", "/usr/local/bin/cloudflared"])
+
+# 4) Run Streamlit (headless) on 8501
+subprocess.run(["pkill", "-f", "streamlit run app.py"], check=False)
+
+streamlit_cmd = [
+    sys.executable,
+    "-m",
+    "streamlit",
+    "run",
+    "app.py",
+    "--server.port",
+    "8501",
+    "--server.address",
+    "0.0.0.0",
+    "--server.headless",
+    "true",
+    "--browser.gatherUsageStats",
+    "false",
+]
+st_proc = subprocess.Popen(streamlit_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+# 5) Start Cloudflare quick tunnel to Streamlit
+cf_proc = subprocess.Popen(
+    ["/usr/local/bin/cloudflared", "tunnel", "--url", "http://localhost:8501"],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True,
+)
+
+# 6) Print the public URL
+public_url = None
+t0 = time.time()
+pattern = re.compile(r"https://[a-z0-9\-]+\.trycloudflare\.com", re.I)
+
+while time.time() - t0 < 30 and public_url is None:
+    line = cf_proc.stdout.readline()
+    if not line:
+        time.sleep(0.1)
+        continue
+    m = pattern.search(line)
+    if m:
+        public_url = m.group(0)
+        break
+
+if public_url:
+    print("\n✅ Streamlit is live here (public URL):")
+    print(public_url)
+    print("\nTip: leave this cell running to keep the app online.")
+else:
+    print("\n⚠️ Could not detect the Cloudflare URL yet. Showing recent tunnel logs:\n")
+    for _ in range(20):
+        line = cf_proc.stdout.readline()
+        if not line:
+            break
+        print(line.rstrip())
