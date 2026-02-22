@@ -233,7 +233,9 @@ with analysis_cols[1]:
 with analysis_cols[2]:
     y_metric = st.selectbox("Y-axis metric", ["systolic", "heart_rate", "weight", "spo2"], index=0)
 with analysis_cols[3]:
-    lookback_years = st.slider("Quick years back", min_value=1, max_value=5, value=2)
+    apply_quick_lookback = st.toggle("Limit lookback", value=False)
+
+lookback_years = st.slider("Quick years back", min_value=1, max_value=5, value=2, disabled=not apply_quick_lookback)
 
 range_start, range_end = min_ts, max_ts
 if window_mode == "Last 30 days":
@@ -255,7 +257,8 @@ elif window_mode == "Custom range":
         range_start = datetime.combine(chosen[0], datetime.min.time())
         range_end = datetime.combine(chosen[1], datetime.max.time())
 
-range_start = max(range_start, max_ts - timedelta(days=365 * lookback_years))
+if apply_quick_lookback:
+    range_start = max(range_start, max_ts - timedelta(days=365 * lookback_years))
 filtered_patient = patient_df[(patient_df["timestamp"] >= range_start) & (patient_df["timestamp"] <= range_end)].copy()
 
 if filtered_patient.empty:
