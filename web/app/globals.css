@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 214 32% 95%;
+  --foreground: 218 34% 20%;
+  --card: 0 0% 100%;
+  --border: 214 27% 82%;
+  --primary: 213 53% 35%;
+  --success: 146 49% 36%;
+  --warning: 34 88% 45%;
+  --danger: 2 65% 54%;
+  --muted: 214 20% 92%;
+}
+
+* { @apply border-border; }
+body {
+  @apply bg-background text-foreground antialiased;
+  font-feature-settings: "cv01", "cv03", "cv04", "cv11";
+}
+
+h1,h2,h3,h4 { @apply tracking-tight; }
+
+.panel {
+  @apply rounded-xl border bg-card shadow-sm;
+}
