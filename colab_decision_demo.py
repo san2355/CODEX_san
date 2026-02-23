@@ -1,7 +1,18 @@
 # Colab demo: apply Doctor Brain titration recommendations to existing `df` from simulator cell.
 
-from hfref_simulator.config import SimulatorConfig
-from hfref_simulator.decision_engine import add_doctor_brain_columns
+import importlib.util
+
+USING_PACKAGE = importlib.util.find_spec("hfref_simulator") is not None
+
+if USING_PACKAGE:
+    from hfref_simulator.config import SimulatorConfig
+    from hfref_simulator.decision_engine import add_doctor_brain_columns
+else:
+    # Reuse single-cell fallback implementation if package is unavailable.
+    # Users can run colab_decision_single_cell.py directly in that case.
+    raise ModuleNotFoundError(
+        "`hfref_simulator` not found. Use `colab_decision_single_cell.py` which includes embedded fallback logic."
+    )
 
 if "df" not in globals():
     raise NameError("Expected dataframe `df` from your Visit-1 simulator cell. Please run that cell first.")
