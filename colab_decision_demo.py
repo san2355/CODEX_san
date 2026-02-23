@@ -17,6 +17,10 @@ cols = [
         "BB",
         "MRA",
         "SGLT2i",
+        "SBP",
+        "HR",
+        "TIR_low_sys",
+        "TIR_low_HR",
         "K",
         "Cr",
         "GFR",
@@ -30,6 +34,9 @@ cols = [
 display_df = df_plan[cols].copy()
 num_cols = display_df.select_dtypes(include=["float", "float64", "float32"]).columns
 display_df[num_cols] = display_df[num_cols].round(1)
+for col in ["SBP", "HR", "TIR_low_sys", "TIR_low_HR"]:
+    if col in display_df.columns:
+        display_df[col] = display_df[col].round(0).astype(int)
 print(display_df.head(10))
 print("\nCounts by recommendation")
 print(df_plan.groupby(["Sequence", "titration"]).size().sort_values(ascending=False))

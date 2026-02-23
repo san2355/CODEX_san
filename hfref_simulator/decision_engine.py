@@ -17,76 +17,145 @@ def _cr_safe(row, cfg):
     return pd.isna(cr_pct) or float(cr_pct) < cfg.CR_PCT_HOLD
 
 
+def _no_change_window(row, cfg):
+    tir_hr = float(row.get("TIR_low_HR", 0))
+    tir_sbp = float(row.get("TIR_low_sys", 0))
+    return (10 < tir_hr < 20) or (10 < tir_sbp < 20)
+
+
+def _raasi_action(row, cfg):
+    cr = float(row.get("Cr", 0))
+    cr_pct = row.get("Cr_pct_ch")
+    k = float(row.get("K", 0))
+    tir_sbp = float(row.get("TIR_low_sys", 0))
+    sx_hypot = int(row.get("Sx_hypot", 0))
+
+    if cr >= 3 or ((not pd.isna(cr_pct)) and float(cr_pct) >= 50) or k >= 5.5 or tir_sbp > 10 or sx_hypot == 1:
+        return -1, "safety_raasi_protocol_down: RAASi protocol down-titration"
+
+    if _no_change_window(row, cfg) and sx_hypot == 0:
+        return 0, "no_change_raasi_protocol"
+
+    if cr < 3 and _cr_safe(row, cfg) and k < 5.5 and tir_sbp <= 10 and sx_hypot == 0:
+        return +1, "uptitration_raasi_protocol"
+
+    return 0, "no_change_raasi_protocol"
+
+
+def _bb_action(row, cfg):
+    tir_hr = float(row.get("TIR_low_HR", 0))
+    tir_sbp = float(row.get("TIR_low_sys", 0))
+    sx_brady = int(row.get("Sx_brady", 0))
+    sx_hypot = int(row.get("Sx_hypot", 0))
+
+    if tir_hr > 10 or tir_sbp > 10 or sx_brady == 1 or sx_hypot == 1:
+        return -1, "safety_bradycardia/bp_protocol_down: BB protocol down-titration"
+
+    if _no_change_window(row, cfg) and sx_brady == 0 and sx_hypot == 0:
+        return 0, "no_change_bb_protocol"
+
+    if tir_hr <= 10 and tir_sbp <= 10 and sx_brady == 0 and sx_hypot == 0:
+        return +1, "uptitration_bb_protocol"
+
+    return 0, "no_change_bb_protocol"
+
+
+def _mra_action(row, cfg):
+    sex = str(row.get("Sex", "M"))
+    gfr = float(row.get("GFR", 999))
+    cr = float(row.get("Cr", 0))
+    cr_pct = row.get("Cr_pct_ch")
+    k = float(row.get("K", 0))
+    tir_sbp = float(row.get("TIR_low_sys", 0))
+    sx_hypot = int(row.get("Sx_hypot", 0))
+    cr_cutoff = 2.0 if sex.upper().startswith("F") else 2.5
+
+    if gfr <= 30 or cr >= cr_cutoff or ((not pd.isna(cr_pct)) and float(cr_pct) >= 50) or k >= 5.5 or tir_sbp > 10 or sx_hypot == 1:
+        return -1, "safety_hyperkalemia/renal/bp_protocol_down: MRA protocol down-titration"
+
+    if _no_change_window(row, cfg) and sx_hypot == 0:
+        return 0, "no_change_mra_protocol"
+
+    if gfr > 30 and cr < cr_cutoff and _cr_safe(row, cfg) and k < 5 and tir_sbp <= 10 and sx_hypot == 0:
+        return +1, "uptitration_mra_protocol"
+
+    return 0, "no_change_mra_protocol"
+
+
+def _sglt2_action(row, cfg):
+    gfr = float(row.get("GFR", 999))
+    tir_sbp = float(row.get("TIR_low_sys", 0))
+    sx_hypot = int(row.get("Sx_hypot", 0))
+
+    # NOTE: Source protocol text appears to contain a typo in down-titration criteria.
+    # Implemented as clinically consistent with other classes:
+    # down-titrate when low-SBP burden is >10 or symptomatic hypotension.
+    if gfr <= 25 or tir_sbp > 10 or sx_hypot == 1:
+        return -1, "safety_sglt2i_protocol_down: SGLT2i protocol down-titration"
+
+    if _no_change_window(row, cfg) and sx_hypot == 0:
+        return 0, "no_change_sglt2i_protocol"
+
+    if gfr > 25 and tir_sbp <= 10 and sx_hypot == 0:
+        return +1, "uptitration_sglt2i_protocol"
+
+    return 0, "no_change_sglt2i_protocol"
+
+
 def recommend_sequence_titration(row, cfg):
-    """Deterministic v1 rule engine: returns (Sequence, titration, criteria)."""
+    """Protocol-driven rule engine: returns (Sequence, titration, criteria)."""
     raasi = int(row.get("RAASi", 0))
     bb = int(row.get("BB", 0))
     mra = int(row.get("MRA", 0))
     sglt2 = int(row.get("SGLT2i", 0))
 
     k = float(row.get("K", 0))
-    gfr = float(row.get("GFR", 999))
-    cr_pct = row.get("Cr_pct_ch")
-    sx_brady = int(row.get("Sx_brady", 0))
-    sx_hypot = int(row.get("Sx_hypot", 0))
     tir_hr = float(row.get("TIR_low_HR", 0))
     tir_sbp = float(row.get("TIR_low_sys", 0))
+    sx_brady = int(row.get("Sx_brady", 0))
+    sx_hypot = int(row.get("Sx_hypot", 0))
 
-    # A/B) Safety overrides (top-level deterministic priority)
-    if (sx_brady == 1 or tir_hr > cfg.TIR_HI) and bb > 0:
-        return "BB", -1, "safety_bradycardia: symptomatic brady/low-HR burden with BB on-board"
+    actions = {
+        "RAASi": _raasi_action(row, cfg),
+        "BB": _bb_action(row, cfg),
+        "MRA": _mra_action(row, cfg),
+        "SGLT2i": _sglt2_action(row, cfg),
+    }
 
-    if k >= cfg.K_HOLD:
+    # Deterministic protocol safety priorities.
+    if (sx_brady == 1 or tir_hr > 10) and bb > 0:
+        return "BB", -1, "safety_bradycardia: BB protocol down-titration"
+
+    if k >= 5.5:
         if mra > 0:
-            return "MRA", -1, f"safety_hyperkalemia: K={k:.2f} >= K_HOLD={cfg.K_HOLD}, prioritize MRA down"
+            return "MRA", -1, "safety_hyperkalemia: MRA protocol down-titration"
         if raasi > 0:
-            return "RAASi", -1, f"safety_hyperkalemia: K={k:.2f} >= K_HOLD={cfg.K_HOLD}, RAASi down"
+            return "RAASi", -1, "safety_hyperkalemia: RAASi protocol down-titration"
 
-    if sx_hypot == 1 or tir_sbp > cfg.TIR_HI:
+    if sx_hypot == 1 or tir_sbp > 10:
         if raasi > 0:
-            return "RAASi", -1, "safety_hypotension: symptomatic/low-SBP burden, RAASi-first down"
-        if bb > 0:
-            return "BB", -1, "safety_hypotension: symptomatic/low-SBP burden, BB down"
-        if mra > 0:
-            return "MRA", -1, "safety_hypotension: symptomatic/low-SBP burden, MRA down"
-        if sglt2 > 0:
-            return "SGLT2i", -1, "safety_hypotension: symptomatic/low-SBP burden, SGLT2i down"
+            return "RAASi", -1, "safety_hypotension: RAASi protocol down-titration"
 
-    if (not pd.isna(cr_pct)) and float(cr_pct) >= cfg.CR_PCT_HOLD:
-        if raasi > 0 or mra > 0:
-            if raasi >= mra and raasi > 0:
-                return "RAASi", -1, f"safety_renal: Cr_pct_ch={float(cr_pct):.1f}% >= {cfg.CR_PCT_HOLD}%, RAASi down"
-            if mra > 0:
-                return "MRA", -1, f"safety_renal: Cr_pct_ch={float(cr_pct):.1f}% >= {cfg.CR_PCT_HOLD}%, MRA down"
-
-    # C) Initiate missing pillars in order
-    stable_bp = _stable_bp(row, cfg)
-    stable_hr = _stable_hr(row, cfg)
-    cr_safe = _cr_safe(row, cfg)
+    # Apply one recommendation at a time with deterministic priority.
+    for med in ORDER:
+        dose = {"RAASi": raasi, "BB": bb, "MRA": mra, "SGLT2i": sglt2}[med]
+        action, reason = actions[med]
+        if dose > 0 and action < 0:
+            return med, -1, reason
 
     for med in ORDER:
-        dose = int(row.get(med, 0))
-        if dose != 0:
-            continue
-        if med == "RAASi" and stable_bp and k < cfg.K_HOLD and cr_safe:
-            return "RAASi", +1, "initiation: missing RAASi and eligible (stable BP/K/renal trend)"
-        if med == "BB" and stable_bp and stable_hr:
-            return "BB", +1, "initiation: missing BB and eligible (stable BP/HR)"
-        if med == "MRA" and stable_bp and gfr > cfg.GFR_MRA_MIN and k < cfg.K_MRA_INIT:
-            return "MRA", +1, "initiation: missing MRA and eligible (K/GFR/BP safe)"
-        if med == "SGLT2i" and stable_bp and gfr > cfg.GFR_SGLT2_MIN:
-            return "SGLT2i", +1, "initiation: missing SGLT2i and eligible"
+        dose = {"RAASi": raasi, "BB": bb, "MRA": mra, "SGLT2i": sglt2}[med]
+        action, reason = actions[med]
+        if action > 0:
+            # For non-binary therapies, up-titrate only if below protocol max dose 4.
+            if med != "SGLT2i" and dose >= 4:
+                continue
+            # Missing pillar may be initiated (dose==0) or existing therapy up-titrated.
+            if dose == 0:
+                return med, +1, f"initiation: {reason}"
+            return med, +1, f"uptitration: {reason}"
 
-    # D) Up-titrate existing meds (SGLT2i binary, no up-titration)
-    if raasi > 0 and raasi < 4 and stable_bp and k < cfg.K_HOLD and cr_safe:
-        return "RAASi", +1, "uptitration: RAASi eligible and below max"
-    if bb > 0 and bb < 4 and stable_bp and stable_hr:
-        return "BB", +1, "uptitration: BB eligible and below max"
-    if mra > 0 and mra < 4 and stable_bp and gfr > cfg.GFR_MRA_MIN and k < cfg.K_MRA_UP:
-        return "MRA", +1, "uptitration: MRA eligible and below max"
-
-    # E) No change
-    return "NONE", 0, "no_change: no safety trigger and no eligible initiation/uptitration"
+    return "NONE", 0, "protocol_no_change: no down- or up-titration trigger"
 
 
 def add_doctor_brain_columns(df, cfg):
