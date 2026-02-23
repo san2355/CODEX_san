@@ -233,29 +233,19 @@ if len(patients) > 4:
 st.markdown(
     """
     <style>
-    .emr-banner {
-        background: linear-gradient(90deg, #f3f6fb 0%, #e7edf7 100%);
-        border: 1px solid #c8d4e6;
-        border-radius: 8px;
-        padding: 0.8rem 1rem;
-        margin-bottom: 0.9rem;
+    .hero-card {
+        background: linear-gradient(135deg, #0f4c81 0%, #1aa6b7 100%);
+        color: white;
+        padding: 1rem 1.2rem;
+        border-radius: 14px;
+        margin-bottom: 1rem;
+        box-shadow: 0 6px 18px rgba(15,76,129,0.25);
     }
-    .emr-banner h3 {
-        margin: 0;
-        color: #1f365c;
-        font-size: 1.18rem;
-    }
-    .emr-banner p {
-        margin: 0.25rem 0 0 0;
-        color: #334e74;
-        font-size: 0.9rem;
-    }
-    .emr-chip {
-        background: #f8fafd;
-        border: 1px solid #d0dbea;
-        border-radius: 6px;
-        padding: 0.55rem 0.75rem;
-        font-size: 0.9rem;
+    .metric-chip {
+        background: #eef7fb;
+        border: 1px solid #d3eaf5;
+        border-radius: 10px;
+        padding: 0.5rem 0.8rem;
     }
     </style>
     """,
@@ -264,16 +254,16 @@ st.markdown(
 
 st.markdown(
     """
-    <div class='emr-banner'>
-      <h3>Longitudinal Patient Data View</h3>
-      <p>AGP-style profile with configurable cadence, target lines, and period-specific time-in-range reporting.</p>
+    <div class='hero-card'>
+      <h3 style='margin:0;'>🧭 Longitudinal Patient Analysis</h3>
+      <p style='margin:0.35rem 0 0 0;'>Healthcare startup-style analytics view for clinician trend review across years, months, weeks, or days.</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
 selected_patient = st.selectbox(
-    "Patient",
+    "Select patient for deep trend review",
     options=sorted(df["patient_id"].unique().tolist()),
 )
 
@@ -281,22 +271,24 @@ patient_df = df[df["patient_id"] == selected_patient].sort_values("timestamp").c
 min_ts = patient_df["timestamp"].min().to_pydatetime()
 max_ts = patient_df["timestamp"].max().to_pydatetime()
 
-controls = st.columns([1, 1, 1, 1])
-with controls[0]:
-    vital = st.selectbox("Vital", ["systolic", "diastolic", "heart_rate"], index=0)
-with controls[1]:
-    window_mode = st.selectbox("Window", ["All data", "Last 24h", "Last 7 days", "Last 30 days", "Last 90 days", "Last 180 days", "Last 365 days", "Custom range"], index=3)
-with controls[2]:
-    cadence = st.selectbox("Cadence", ["Minute", "15-Minute", "Hourly", "Daily", "Weekly", "Monthly"], index=4)
-with controls[3]:
-    tir_period = st.selectbox("Time-in-range period", ["Day", "Week", "Month", "Custom"], index=2)
+analysis_cols = st.columns([1.1, 1.1, 1, 1])
+with analysis_cols[0]:
+    window_mode = st.selectbox(
+        "Time window",
+        ["All data", "Last 30 days", "Last 90 days", "Last 180 days", "Last 365 days", "Custom range"],
+        index=0,
+    )
+with analysis_cols[1]:
+    cadence = st.selectbox("X-axis cadence", ["Raw readings", "Daily", "Weekly", "Monthly"], index=2)
+with analysis_cols[2]:
+    y_metric = st.selectbox("Vital sign", ["systolic", "diastolic", "heart_rate", "weight"], index=0)
+with analysis_cols[3]:
+    apply_quick_lookback = st.toggle("Limit lookback", value=False)
+
+lookback_years = st.slider("Quick years back", min_value=1, max_value=5, value=2, disabled=not apply_quick_lookback)
 
 range_start, range_end = min_ts, max_ts
-if window_mode == "Last 24h":
-    range_start = max_ts - timedelta(hours=24)
-elif window_mode == "Last 7 days":
-    range_start = max_ts - timedelta(days=7)
-elif window_mode == "Last 30 days":
+if window_mode == "Last 30 days":
     range_start = max_ts - timedelta(days=30)
 elif window_mode == "Last 90 days":
     range_start = max_ts - timedelta(days=90)
@@ -306,7 +298,7 @@ elif window_mode == "Last 365 days":
     range_start = max_ts - timedelta(days=365)
 elif window_mode == "Custom range":
     chosen = st.date_input(
-        "Custom date range",
+        "Choose custom date range",
         value=(min_ts.date(), max_ts.date()),
         min_value=min_ts.date(),
         max_value=max_ts.date(),
@@ -315,118 +307,155 @@ elif window_mode == "Custom range":
         range_start = datetime.combine(chosen[0], datetime.min.time())
         range_end = datetime.combine(chosen[1], datetime.max.time())
 
-filtered = patient_df[(patient_df["timestamp"] >= range_start) & (patient_df["timestamp"] <= range_end)].copy()
+if apply_quick_lookback:
+    range_start = max(range_start, max_ts - timedelta(days=365 * lookback_years))
 
-if filtered.empty:
-    st.warning("No readings are available for the selected filters.")
+filtered_patient = patient_df[(patient_df["timestamp"] >= range_start) & (patient_df["timestamp"] <= range_end)].copy()
+
+
+def zone_config(metric: str, source_df: pd.DataFrame):
+    if metric == "systolic":
+        return {"Very Low": (-1e9, 79), "Low": (80, 89), "Target": (90, 140), "High": (141, 160), "Very High": (161, 1e9)}, (90, 140), "mmHg"
+    if metric == "diastolic":
+        return {"Very Low": (-1e9, 49), "Low": (50, 59), "Target": (60, 90), "High": (91, 100), "Very High": (101, 1e9)}, (60, 90), "mmHg"
+    if metric == "heart_rate":
+        return {"Very Low": (-1e9, 49), "Low": (50, 59), "Target": (60, 100), "High": (101, 120), "Very High": (121, 1e9)}, (60, 100), "bpm"
+
+    baseline = float(source_df["weight"].median())
+    return {
+        "Very Low": (-1e9, baseline - 3),
+        "Low": (baseline - 3, baseline - 1.5),
+        "Target": (baseline - 1.5, baseline + 1.5),
+        "High": (baseline + 1.5, baseline + 3),
+        "Very High": (baseline + 3, 1e9),
+    }, (baseline - 1.5, baseline + 1.5), "kg"
+
+
+def classify_zone(value: float, cfg: dict[str, tuple[float, float]]) -> str:
+    for name, (low, high) in cfg.items():
+        if low <= value <= high:
+            return name
+    return "Very High"
+
+if filtered_patient.empty:
+    st.warning("No readings for the selected patient in that time range.")
 else:
-    metric_cfg = {
-        "systolic": {"unit": "mmHg", "target": (90, 120), "zones": {"Very Low": (-1e9, 79), "Low": (80, 89), "Target": (90, 120), "High": (121, 140), "Very High": (141, 1e9)}},
-        "diastolic": {"unit": "mmHg", "target": (60, 90), "zones": {"Very Low": (-1e9, 49), "Low": (50, 59), "Target": (60, 90), "High": (91, 100), "Very High": (101, 1e9)}},
-        "heart_rate": {"unit": "bpm", "target": (60, 100), "zones": {"Very Low": (-1e9, 49), "Low": (50, 59), "Target": (60, 100), "High": (101, 120), "Very High": (121, 1e9)}},
-    }
-    cfg = metric_cfg[vital]
+    cfg, target_band, unit = zone_config(y_metric, patient_df)
+    freq_map = {"Raw readings": None, "Daily": "D", "Weekly": "W", "Monthly": "ME"}
+    freq = freq_map[cadence]
 
-    def bucket(v: float) -> str:
-        for label, (low, high) in cfg["zones"].items():
-            if low <= v <= high:
-                return label
-        return "Very High"
-
-    cadence_map = {"Minute": "min", "15-Minute": "15min", "Hourly": "H", "Daily": "D", "Weekly": "W", "Monthly": "ME"}
-    freq = cadence_map[cadence]
-
-    trend = (
-        filtered.set_index("timestamp")[vital]
-        .resample(freq)
-        .agg(
-            p05=lambda x: np.nanpercentile(x, 5),
-            p25=lambda x: np.nanpercentile(x, 25),
-            p50=lambda x: np.nanpercentile(x, 50),
-            p75=lambda x: np.nanpercentile(x, 75),
-            p95=lambda x: np.nanpercentile(x, 95),
+    if freq is None:
+        trend = filtered_patient[["timestamp", y_metric]].copy()
+        trend = trend.rename(columns={"timestamp": "period", y_metric: "median"})
+        trend["p05"] = trend["median"]
+        trend["p25"] = trend["median"]
+        trend["p75"] = trend["median"]
+        trend["p95"] = trend["median"]
+    else:
+        trend = (
+            filtered_patient.set_index("timestamp")[y_metric]
+            .resample(freq)
+            .agg(
+                p05=lambda x: np.nanpercentile(x, 5),
+                p25=lambda x: np.nanpercentile(x, 25),
+                median="median",
+                p75=lambda x: np.nanpercentile(x, 75),
+                p95=lambda x: np.nanpercentile(x, 95),
+            )
+            .dropna(subset=["median"])
+            .reset_index(names="period")
         )
-        .dropna()
-        .reset_index(names="period")
-    )
 
-    if tir_period == "Day":
-        tir_key = filtered["timestamp"].dt.to_period("D").astype(str)
-    elif tir_period == "Week":
-        tir_key = filtered["timestamp"].dt.to_period("W").astype(str)
-    elif tir_period == "Month":
-        tir_key = filtered["timestamp"].dt.to_period("M").astype(str)
-    else:
-        custom = st.date_input("Custom TIR period", value=(range_start.date(), range_end.date()), min_value=min_ts.date(), max_value=max_ts.date(), key="tir_custom")
-        c0, c1 = range_start, range_end
-        if isinstance(custom, tuple) and len(custom) == 2:
-            c0 = datetime.combine(custom[0], datetime.min.time())
-            c1 = datetime.combine(custom[1], datetime.max.time())
-        custom_df = filtered[(filtered["timestamp"] >= c0) & (filtered["timestamp"] <= c1)].copy()
-        custom_df["period"] = f"{c0.date()} to {c1.date()}"
-        period_df = custom_df
-        tir_key = None
+    scope = filtered_patient[["timestamp", y_metric]].copy()
+    scope["period"] = scope["timestamp"].dt.to_period("M").astype(str)
+    period_counts = scope.groupby("period")[y_metric].count().sort_index()
+    eligible_periods = period_counts[period_counts >= 10]
+    report_period = eligible_periods.index.max() if not eligible_periods.empty else period_counts.index.max()
+    report_df = scope[scope["period"] == report_period].copy()
+    report_df["zone"] = report_df[y_metric].apply(lambda v: classify_zone(float(v), cfg))
 
-    if tir_period != "Custom":
-        period_df = filtered.copy()
-        period_df["period"] = tir_key
-        counts = period_df.groupby("period")[vital].count().sort_index()
-        eligible = counts[counts >= 10]
-        report_period = eligible.index.max() if not eligible.empty else counts.index.max()
-        period_df = period_df[period_df["period"] == report_period].copy()
-    else:
-        report_period = period_df["period"].iloc[0] if not period_df.empty else "Custom"
-
-    period_df["zone"] = period_df[vital].apply(lambda x: bucket(float(x)))
     zone_order = ["Very High", "High", "Target", "Low", "Very Low"]
-    zone_pct = period_df["zone"].value_counts(normalize=True).reindex(zone_order).fillna(0) * 100
+    zone_pct = report_df["zone"].value_counts(normalize=True).reindex(zone_order).fillna(0) * 100
 
-    h1, h2, h3 = st.columns(3)
-    h1.markdown(f"<div class='emr-chip'><strong>Patient</strong><br>{selected_patient}</div>", unsafe_allow_html=True)
-    h2.markdown(f"<div class='emr-chip'><strong>TIR period</strong><br>{report_period}</div>", unsafe_allow_html=True)
-    h3.markdown(f"<div class='emr-chip'><strong>Target</strong><br>{cfg['target'][0]} - {cfg['target'][1]} {cfg['unit']}</div>", unsafe_allow_html=True)
+    m1, m2, m3 = st.columns([1, 1, 1])
+    m1.markdown(f"<div class='metric-chip'><b>Patient</b><br>{selected_patient}</div>", unsafe_allow_html=True)
+    m2.markdown(f"<div class='metric-chip'><b>Report period</b><br>{report_period}</div>", unsafe_allow_html=True)
+    m3.markdown(f"<div class='metric-chip'><b>Target range</b><br>{target_band[0]:.1f} - {target_band[1]:.1f} {unit}</div>", unsafe_allow_html=True)
 
     fig = make_subplots(
         rows=1,
         cols=2,
-        specs=[[{"secondary_y": True}, {"secondary_y": True}]],
-        column_widths=[0.34, 0.66],
-        subplot_titles=(f"Time in Ranges ({tir_period})", f"Longitudinal {vital.replace('_', ' ').title()} Profile"),
-        horizontal_spacing=0.12,
+        column_widths=[0.32, 0.68],
+        subplot_titles=(
+            f"Time in Ranges — {y_metric.replace('_', ' ').title()}",
+            f"Longitudinal {y_metric.replace('_', ' ').title()} profile",
+        ),
+        horizontal_spacing=0.14,
     )
 
-    zone_colors = {"Very Low": "#5b8cc0", "Low": "#9db8d6", "Target": "#5fa25f", "High": "#f0b35a", "Very High": "#d86a5f"}
+    colors = {
+        "Very Low": "#e74c3c",
+        "Low": "#f39c12",
+        "Target": "#58b368",
+        "High": "#f39c12",
+        "Very High": "#d35400",
+    }
 
-    for z in zone_order[::-1]:
-        fig.add_trace(go.Bar(x=[report_period], y=[float(zone_pct[z])], name=z, marker_color=zone_colors[z], hovertemplate=f"{z}: %{{y:.1f}}%<extra></extra>"), row=1, col=1, secondary_y=True)
+    for zone in zone_order[::-1]:
+        fig.add_trace(
+            go.Bar(
+                x=[report_period],
+                y=[float(zone_pct[zone])],
+                name=zone,
+                marker_color=colors[zone],
+                hovertemplate=f"{zone}: %{{y:.1f}}%<extra></extra>",
+            ),
+            row=1,
+            col=1,
+        )
 
-    left_min = min(v for v,_ in cfg["zones"].values() if abs(v) < 1e8)
-    left_max = max(h for _,h in cfg["zones"].values() if abs(h) < 1e8)
-    fig.add_trace(go.Scatter(x=[report_period, report_period], y=[cfg["target"][0], cfg["target"][1]], mode="lines", line=dict(color="#2f5d96", width=0.1), showlegend=False, hoverinfo="skip"), row=1, col=1, secondary_y=False)
+    fig.add_trace(go.Scatter(x=trend["period"], y=trend["p95"], mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip"), row=1, col=2)
+    fig.add_trace(go.Scatter(x=trend["period"], y=trend["p05"], mode="lines", line=dict(width=0), fill="tonexty", fillcolor="rgba(244,162,97,0.25)", name="5-95%"), row=1, col=2)
+    fig.add_trace(go.Scatter(x=trend["period"], y=trend["p75"], mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip"), row=1, col=2)
+    fig.add_trace(go.Scatter(x=trend["period"], y=trend["p25"], mode="lines", line=dict(width=0), fill="tonexty", fillcolor="rgba(240,201,135,0.45)", name="25-75%"), row=1, col=2)
+    fig.add_trace(go.Scatter(x=trend["period"], y=trend["median"], mode="lines", line=dict(color="#17803d", width=3), name="Median"), row=1, col=2)
 
-    fig.add_trace(go.Scatter(x=trend["period"], y=trend["p95"], mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip"), row=1, col=2, secondary_y=False)
-    fig.add_trace(go.Scatter(x=trend["period"], y=trend["p05"], mode="lines", line=dict(width=0), fill="tonexty", fillcolor="rgba(142,173,201,0.35)", name="5-95%"), row=1, col=2, secondary_y=False)
-    fig.add_trace(go.Scatter(x=trend["period"], y=trend["p75"], mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip"), row=1, col=2, secondary_y=False)
-    fig.add_trace(go.Scatter(x=trend["period"], y=trend["p25"], mode="lines", line=dict(width=0), fill="tonexty", fillcolor="rgba(230,177,112,0.45)", name="25-75%"), row=1, col=2, secondary_y=False)
-    fig.add_trace(go.Scatter(x=trend["period"], y=trend["p50"], mode="lines", line=dict(color="#1f6fb2", width=2.8), name="Median (50%)"), row=1, col=2, secondary_y=False)
+    fig.add_hrect(y0=target_band[0], y1=target_band[1], line_width=0, fillcolor="rgba(88,179,104,0.18)", row=1, col=2)
 
-    fig.add_hline(y=cfg["target"][0], line=dict(color="#2f5d96", width=1.5), row=1, col=2)
-    fig.add_hline(y=cfg["target"][1], line=dict(color="#2f5d96", width=1.5), row=1, col=2)
-    fig.add_hrect(y0=cfg["target"][0], y1=cfg["target"][1], fillcolor="rgba(95,162,95,0.18)", line_width=0, row=1, col=2)
+    y_min = float(filtered_patient[y_metric].min())
+    y_max = float(filtered_patient[y_metric].max())
+    y_pad = max((y_max - y_min) * 0.15, 1)
+    y_range = st.slider(
+        "Y-axis zoom",
+        min_value=float(max(0, y_min - y_pad)),
+        max_value=float(y_max + y_pad),
+        value=(float(max(0, y_min - y_pad / 2)), float(y_max + y_pad / 2)),
+        step=0.5,
+    )
 
-    fig.update_layout(height=620, barmode="stack", paper_bgcolor="#f2f4f8", plot_bgcolor="#f2f4f8", legend_title_text="Range", font=dict(family="Arial, sans-serif", size=13, color="#21324d"), margin=dict(l=30, r=30, t=60, b=40))
-
-    fig.update_yaxes(title_text=f"{vital.replace('_', ' ').title()} ({cfg['unit']})", row=1, col=1, secondary_y=False, range=[left_min-5, left_max+5])
-    fig.update_yaxes(title_text="Percent of readings (%)", row=1, col=1, secondary_y=True, range=[0, 100])
-
-    fig.update_yaxes(title_text=f"{vital.replace('_', ' ').title()} ({cfg['unit']})", row=1, col=2, secondary_y=False, showgrid=True, gridcolor="#d4deea")
-    fig.update_yaxes(title_text="Percentiles", row=1, col=2, secondary_y=True, tickvals=[95, 75, 50, 25, 5], ticktext=["95%", "75%", "50%", "25%", "5%"], range=[0, 100])
-
-    fig.update_xaxes(title_text="Period", row=1, col=1)
-    fig.update_xaxes(title_text="Time", row=1, col=2, showgrid=True, gridcolor="#d4deea")
+    fig.update_layout(
+        barmode="stack",
+        height=600,
+        paper_bgcolor="#f8fbfd",
+        plot_bgcolor="#f8fbfd",
+        title=(
+            f"Patient {selected_patient} • {window_mode} • {cadence} cadence "
+            f"(readings: {len(filtered_patient)})"
+        ),
+    )
+    fig.update_xaxes(title_text="Report Period", row=1, col=1)
+    fig.update_yaxes(title_text="Percent of readings (%)", range=[0, 100], row=1, col=1)
+    fig.update_xaxes(title_text="Time", row=1, col=2)
+    fig.update_yaxes(title_text=f"{y_metric.replace('_', ' ').title()} ({unit})", range=list(y_range), row=1, col=2)
 
     st.plotly_chart(fig, width='stretch')
-st.subheader("Medication Suggestions (Simulated Rules)")
+
+    st.caption(
+        "AGP-inspired longitudinal review: stacked bar summarizes time-in-range for the latest reporting month, "
+        "and percentile ribbons display variability over time for the selected vital."
+    )
+
+st.subheader("💊 Medication Suggestions (Simulated Rules)")
 suggestions = []
 
 for pid in patients:
