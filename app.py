@@ -14,9 +14,27 @@ except ImportError:
     st_autorefresh = None
 
 st.set_page_config(layout="wide", page_title="Cardiology RPM Dashboard")
-st.title("🫀 ICU-Style Live Cardiology RPM Dashboard (Colab Demo, no ngrok)")
+st.title("Cardiology Remote Patient Monitoring Dashboard")
+st.caption("Clinical Operations Workspace • Longitudinal Trend Intelligence")
 
-st.sidebar.header("Controls")
+st.markdown("""
+<style>
+:root {
+  --emr-bg: #eef2f7;
+  --emr-panel: #f8fafd;
+  --emr-border: #c7d3e3;
+  --emr-text: #1e2f4d;
+}
+.stApp { background-color: var(--emr-bg); color: var(--emr-text); }
+section[data-testid="stSidebar"] { background: #e6edf6; border-right: 1px solid var(--emr-border); }
+.block-container { padding-top: 1.2rem; }
+div[data-testid="stDataFrame"] { border: 1px solid var(--emr-border); border-radius: 6px; background: var(--emr-panel); }
+div[data-testid="stMetric"] { background: var(--emr-panel); border: 1px solid var(--emr-border); border-radius: 6px; padding: 0.25rem 0.5rem; }
+.stAlert { border-radius: 6px; border: 1px solid var(--emr-border); }
+</style>
+""", unsafe_allow_html=True)
+
+st.sidebar.header("Clinical Controls")
 
 default_patients = ["HF001", "HF002", "HF003", "HF004"]
 patients_text = st.sidebar.text_area(
@@ -42,12 +60,12 @@ else:
     st.sidebar.warning("Auto-refresh unavailable: install `streamlit-autorefresh` for timed reloads.")
 
 col1, col2 = st.sidebar.columns(2)
-if col1.button("🧹 Clear data", width='stretch'):
+if col1.button("Clear data", width='stretch'):
     st.session_state.vitals_data = []
     st.session_state.last_weight = {pid: 75.0 for pid in patients}
     st.rerun()
 
-if col2.button("📥 Seed demo", width='stretch'):
+if col2.button("Seed demo", width='stretch'):
     st.session_state.vitals_data = []
     st.session_state.last_weight = {pid: 75.0 for pid in patients}
     now = datetime.now()
@@ -151,13 +169,13 @@ def risk_label(latest_row: pd.Series, patient_df: pd.DataFrame) -> str:
     moderate = (sbp > 140) or (hr > 100) or (w_delta > 1.0)
 
     if critical:
-        return "🔴 Critical"
+        return "Critical"
     if moderate:
-        return "🟡 Moderate"
-    return "🟢 Stable"
+        return "Moderate"
+    return "Stable"
 
 
-st.subheader("🩺 Patient Wall (Latest Measurements)")
+st.subheader("Patient Wall (Latest Measurements)")
 latest = latest_row_per_patient(df).copy()
 
 risk = []
@@ -170,7 +188,7 @@ latest["Risk"] = risk
 show_cols = ["patient_id", "systolic", "diastolic", "heart_rate", "weight", "spo2", "timestamp", "Risk"]
 st.dataframe(latest[show_cols], width='stretch', hide_index=True)
 
-st.subheader("⚠️ Alerts Summary (Last 24h)")
+st.subheader("Alerts Summary (Last 24h)")
 now = datetime.now()
 df_24h = df[df["timestamp"] >= (now - timedelta(hours=24))].copy()
 
@@ -181,7 +199,7 @@ for pid in patients:
         continue
     last = p.iloc[-1]
     label = risk_label(last, df[df["patient_id"] == pid])
-    if label.startswith("🔴"):
+    if label.startswith("Critical"):
         alerts.append(last)
 
 if alerts:
@@ -190,7 +208,7 @@ if alerts:
 else:
     st.success("No critical alerts in last 24h (based on current rules).")
 
-st.subheader("📈 Patient Trend Panels")
+st.subheader("Patient Trend Panels (Operational View)")
 cols = st.columns(min(len(patients), 4))
 for i, pid in enumerate(patients[:4]):
     p = df[df["patient_id"] == pid].sort_values("timestamp").copy()
@@ -199,6 +217,7 @@ for i, pid in enumerate(patients[:4]):
     with cols[i]:
         st.markdown(f"**Patient {pid}**")
         fig = px.line(p, x="timestamp", y=["systolic", "heart_rate", "weight", "spo2"], height=280)
+        fig.update_layout(template="plotly_white", margin=dict(l=10, r=10, t=30, b=10), paper_bgcolor="#f8fafd")
         st.plotly_chart(fig, width='stretch')
 
 if len(patients) > 4:
@@ -208,6 +227,7 @@ if len(patients) > 4:
         if p.empty:
             continue
         fig = px.line(p, x="timestamp", y=["systolic", "heart_rate", "weight", "spo2"], height=260)
+        fig.update_layout(template="plotly_white", margin=dict(l=10, r=10, t=30, b=10), paper_bgcolor="#f8fafd")
         st.plotly_chart(fig, width='stretch')
 
 st.markdown(
@@ -466,7 +486,7 @@ if suggestions:
 else:
     st.success("No medication adjustments suggested by current demo rules.")
 
-st.subheader("📤 Export")
+st.subheader("Export")
 csv_bytes = df.sort_values(["patient_id", "timestamp"]).to_csv(index=False).encode("utf-8")
 st.download_button(
     "Download current data as CSV",
