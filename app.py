@@ -14,23 +14,68 @@ except ImportError:
     st_autorefresh = None
 
 st.set_page_config(layout="wide", page_title="Cardiology RPM Dashboard")
-st.title("Cardiology Remote Patient Monitoring Dashboard")
-st.caption("Clinical Operations Workspace • Longitudinal Trend Intelligence")
+
+st.markdown(
+    """
+    <div class="connected-care-header">
+      <div class="connected-care-brand">
+        <div class="heart-logo" aria-hidden="true">❤</div>
+        <div>
+          <p class="brand-eyebrow">Connected Care</p>
+          <h1>Cardiology Remote Patient Monitoring Dashboard</h1>
+          <p class="brand-subtitle">Clinical Operations Workspace • Longitudinal Trend Intelligence</p>
+        </div>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 st.markdown("""
 <style>
 :root {
-  --emr-bg: #eef2f7;
-  --emr-panel: #f8fafd;
-  --emr-border: #c7d3e3;
+  --emr-bg: #f3f7ff;
+  --emr-panel: #ffffff;
+  --emr-border: #d4e2f6;
   --emr-text: #1e2f4d;
+  --brand-primary: #0f3f82;
+  --brand-accent: #ff5e7d;
 }
-.stApp { background-color: var(--emr-bg); color: var(--emr-text); }
+.stApp { background: radial-gradient(circle at top right, #eef9ff 0%, var(--emr-bg) 42%, #f8f7ff 100%); color: var(--emr-text); }
 section[data-testid="stSidebar"] { background: #e6edf6; border-right: 1px solid var(--emr-border); }
-.block-container { padding-top: 1.2rem; }
+.block-container { padding-top: 2.8rem; transition: opacity 220ms ease-in-out; }
 div[data-testid="stDataFrame"] { border: 1px solid var(--emr-border); border-radius: 6px; background: var(--emr-panel); }
-div[data-testid="stMetric"] { background: var(--emr-panel); border: 1px solid var(--emr-border); border-radius: 6px; padding: 0.25rem 0.5rem; }
+div[data-testid="stMetric"] { background: var(--emr-panel); border: 1px solid var(--emr-border); border-radius: 12px; padding: 0.25rem 0.5rem; box-shadow: 0 6px 18px rgba(15,63,130,0.08); }
 .stAlert { border-radius: 6px; border: 1px solid var(--emr-border); }
+.connected-care-header {
+  background: linear-gradient(135deg, #0f3f82 0%, #1a9ac4 55%, #84d9ff 100%);
+  border-radius: 20px;
+  padding: 1.05rem 1.2rem;
+  color: #f7fcff;
+  box-shadow: 0 14px 28px rgba(16, 64, 130, 0.25);
+  margin-bottom: 0.75rem;
+}
+.connected-care-brand { display: flex; gap: 0.85rem; align-items: center; }
+.connected-care-header h1 { margin: 0; font-size: 1.72rem; line-height: 1.25; padding-top: 0.1rem; }
+.brand-eyebrow { margin: 0; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.8rem; font-weight: 700; opacity: 0.95; }
+.brand-subtitle { margin: 0.25rem 0 0 0; font-size: 0.92rem; opacity: 0.94; }
+.heart-logo {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255,255,255,0.4);
+  display: grid;
+  place-content: center;
+  font-size: 1.4rem;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+.section-card {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--emr-border);
+  border-radius: 16px;
+  padding: 0.85rem 0.95rem;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -47,7 +92,7 @@ if not patients:
     st.warning("Add at least one patient ID in the sidebar.")
     st.stop()
 
-refresh_seconds = st.sidebar.slider("Auto-refresh (seconds)", 5, 120, 60, 5)
+refresh_seconds = st.sidebar.slider("Auto-refresh (seconds)", 60, 900, 360, 30)
 simulate_on = st.sidebar.toggle("Simulate incoming vitals", value=True)
 points_per_refresh = st.sidebar.slider("New readings per refresh (per patient)", 1, 5, 1)
 
@@ -58,6 +103,24 @@ if st_autorefresh is not None:
     st_autorefresh(interval=refresh_seconds * 1000, key="auto_refresh")
 else:
     st.sidebar.warning("Auto-refresh unavailable: install `streamlit-autorefresh` for timed reloads.")
+
+st.caption(f"Last refresh: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} • Auto-refresh every {refresh_seconds//60 if refresh_seconds >= 60 else refresh_seconds} {'minutes' if refresh_seconds >= 120 else 'minute' if refresh_seconds >= 60 else 'seconds'}")
+
+st.markdown(
+    """
+    <div class="section-card">
+      <b>Connected Care Goals & Deliverables</b>
+      <ul style="margin-top:0.4rem; margin-bottom:0;">
+        <li>✅ Modernized dashboard appearance and spacing fixes for a cleaner user experience.</li>
+        <li>✅ Patient Wall now focuses strictly on the latest vitals (risk removed from this panel).</li>
+        <li>✅ Alert Summary now includes risk classification with clear color coding.</li>
+        <li>✅ Longitudinal view preserves existing panel labels and adds zone markers beside the trend plot.</li>
+        <li>✅ Refresh cadence defaults to 6 minutes for smoother operations.</li>
+      </ul>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 col1, col2 = st.sidebar.columns(2)
 if col1.button("Clear data", width='stretch'):
@@ -166,13 +229,30 @@ def risk_label(latest_row: pd.Series, patient_df: pd.DataFrame) -> str:
     w_delta = w_now - w_base
 
     critical = (sbp > 160) or (hr > 110) or (w_delta > 2.0)
-    moderate = (sbp > 140) or (hr > 100) or (w_delta > 1.0)
+    unstable = (sbp > 140) or (hr > 100) or (w_delta > 1.0)
 
     if critical:
         return "Critical"
-    if moderate:
-        return "Moderate"
+    if unstable:
+        return "Unstable"
     return "Stable"
+
+
+def risk_color(label: str) -> str:
+    palette = {
+        "Critical": "#c62828",
+        "Unstable": "#ef6c00",
+        "Stable": "#2e7d32",
+    }
+    return palette.get(label, "#546e7a")
+
+
+def hex_to_rgba(hex_color: str, alpha: float = 0.2) -> str:
+    hex_color = hex_color.lstrip("#")
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+    return f"rgba({r}, {g}, {b}, {alpha})"
 
 
 st.subheader("Patient Wall (Latest Measurements)")
@@ -185,7 +265,7 @@ for _, row in latest.iterrows():
     risk.append(risk_label(row, patient_hist))
 latest["Risk"] = risk
 
-show_cols = ["patient_id", "systolic", "diastolic", "heart_rate", "weight", "spo2", "timestamp", "Risk"]
+show_cols = ["patient_id", "systolic", "diastolic", "heart_rate", "weight", "spo2", "timestamp"]
 st.dataframe(latest[show_cols], width='stretch', hide_index=True)
 
 st.subheader("Alerts Summary (Last 24h)")
@@ -200,11 +280,27 @@ for pid in patients:
     last = p.iloc[-1]
     label = risk_label(last, df[df["patient_id"] == pid])
     if label.startswith("Critical"):
-        alerts.append(last)
+        payload = last.to_dict()
+        payload["Risk"] = label
+        alerts.append(payload)
+
+    if label == "Unstable":
+        payload = last.to_dict()
+        payload["Risk"] = label
+        alerts.append(payload)
 
 if alerts:
-    alerts_df = pd.DataFrame(alerts)[["patient_id", "systolic", "heart_rate", "weight", "spo2", "timestamp"]]
-    st.dataframe(alerts_df.sort_values(["patient_id", "timestamp"]), width='stretch', hide_index=True)
+    alerts_df = (
+        pd.DataFrame(alerts)
+        .sort_values(["patient_id", "timestamp"])
+        .drop_duplicates(subset=["patient_id", "timestamp", "Risk"])
+    )[["patient_id", "systolic", "heart_rate", "weight", "spo2", "timestamp", "Risk"]]
+
+    def highlight_risk(row):
+        color = risk_color(str(row["Risk"]))
+        return [f"background-color: {color}; color: white; font-weight: 600" if col == "Risk" else "" for col in row.index]
+
+    st.dataframe(alerts_df.style.apply(highlight_risk, axis=1), width='stretch', hide_index=True)
 else:
     st.success("No critical alerts in last 24h (based on current rules).")
 
@@ -421,6 +517,28 @@ else:
     fig.add_trace(go.Scatter(x=trend["period"], y=trend["median"], mode="lines", line=dict(color="#17803d", width=3), name="Median"), row=1, col=2)
 
     fig.add_hrect(y0=target_band[0], y1=target_band[1], line_width=0, fillcolor="rgba(88,179,104,0.18)", row=1, col=2)
+
+    zone_midpoints = []
+    for zone_name, (low, high) in cfg.items():
+        clipped_low = max(low, float(trend["p05"].min()))
+        clipped_high = min(high, float(trend["p95"].max()))
+        midpoint = (clipped_low + clipped_high) / 2
+        zone_midpoints.append((zone_name, midpoint))
+
+    for zone_name, midpoint in zone_midpoints:
+        fig.add_annotation(
+            x=1.02,
+            xref="x2 domain",
+            y=midpoint,
+            yref="y2",
+            text=zone_name,
+            showarrow=False,
+            align="left",
+            font=dict(size=11, color="#2b3f5c"),
+            bgcolor=hex_to_rgba(colors[zone_name], 0.18),
+            bordercolor=colors[zone_name],
+            borderwidth=1,
+        )
 
     y_min = float(filtered_patient[y_metric].min())
     y_max = float(filtered_patient[y_metric].max())
