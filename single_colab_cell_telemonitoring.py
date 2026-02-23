@@ -26,6 +26,18 @@ if not os.path.exists("/usr/local/bin/cloudflared"):
     subprocess.check_call(["chmod", "+x", "/usr/local/bin/cloudflared"])
 
 subprocess.run(["pkill", "-f", "streamlit run app.py"], check=False)
+subprocess.Popen([
+    sys.executable, "-m", "streamlit", "run", "app.py",
+    "--server.port", "8501",
+    "--server.address", "0.0.0.0",
+    "--server.headless", "true",
+    "--browser.gatherUsageStats", "false",
+], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+# 5) Cloudflare tunnel and URL
+cf_proc = subprocess.Popen([
+    "/usr/local/bin/cloudflared", "tunnel", "--url", "http://localhost:8501"
+], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
 subprocess.Popen([
     sys.executable, "-m", "streamlit", "run", APP_FILE,
