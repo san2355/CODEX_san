@@ -85,3 +85,27 @@ def test_add_columns_schema_and_single_action_per_row():
     assert out["titration"].isin([-1, 0, 1]).all()
     assert ((out["Sequence"] == "NONE") == (out["titration"] == 0)).all()
     assert out["criteria"].astype(str).str.len().gt(0).all()
+
+
+def test_initiation_priority_first_zero_in_order():
+    cfg = SimulatorConfig()
+    row = _base_row()
+    row["RAASi"] = 2
+    row["BB"] = 0
+    row["MRA"] = 0
+    row["SGLT2i"] = 0
+    seq, tit, crit = recommend_sequence_titration(pd.Series(row), cfg)
+    assert (seq, tit) == ("BB", +1)
+    assert "initiation_priority_order" in crit
+
+
+def test_uptitration_priority_first_submaximal_in_order_when_all_on():
+    cfg = SimulatorConfig()
+    row = _base_row()
+    row["RAASi"] = 4
+    row["BB"] = 2
+    row["MRA"] = 1
+    row["SGLT2i"] = 1
+    seq, tit, crit = recommend_sequence_titration(pd.Series(row), cfg)
+    assert (seq, tit) == ("BB", +1)
+    assert "uptitration_priority_order" in crit

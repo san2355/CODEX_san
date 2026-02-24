@@ -143,19 +143,19 @@ def recommend_sequence_titration(row, cfg):
         if dose > 0 and action < 0:
             return med, -1, reason
 
+    # Deliverable rule: if any meds are 0, initiate the first in order at dose step +1.
     for med in ORDER:
         dose = {"RAASi": raasi, "BB": bb, "MRA": mra, "SGLT2i": sglt2}[med]
-        action, reason = actions[med]
-        if action > 0:
-            # For non-binary therapies, up-titrate only if below protocol max dose 4.
-            if med != "SGLT2i" and dose >= 4:
-                continue
-            # Missing pillar may be initiated (dose==0) or existing therapy up-titrated.
-            if dose == 0:
-                return med, +1, f"initiation: {reason}"
-            return med, +1, f"uptitration: {reason}"
+        if dose == 0:
+            return med, +1, f"initiation_priority_order: {med} is first zero-dose pillar"
 
-    return "NONE", 0, "protocol_no_change: no down- or up-titration trigger"
+    # Deliverable rule: if all meds are >=1, up-titrate first in order that is <4.
+    for med in ORDER:
+        dose = {"RAASi": raasi, "BB": bb, "MRA": mra, "SGLT2i": sglt2}[med]
+        if med != "SGLT2i" and 1 <= dose < 4:
+            return med, +1, f"uptitration_priority_order: {med} is first submaximal pillar"
+
+    return "NONE", 0, "protocol_no_change: no down-trigger and all pillars at max/maintained"
 
 
 def add_doctor_brain_columns(df, cfg):
