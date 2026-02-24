@@ -208,6 +208,7 @@ def simulate_visit1(n_patients=10, cfg=None, save_csv=True, return_latent=False)
         "K": k,
         "Cr": cr,
         "GFR": gfr,
+        "Cr_pct_ch": 100.0 * (cr - cr0) / cr0,
         "RAASi": raasi,
         "BB": bb,
         "MRA": mra,
@@ -219,7 +220,17 @@ def simulate_visit1(n_patients=10, cfg=None, save_csv=True, return_latent=False)
     out["Sx_hypot"] = (rng.random(n_patients) < sigmoid(cfg.sx_hypot_intercept + cfg.sx_tir_scale * (out["TIR_low_sys"] - cfg.sx_tir_midpoint))).astype(int)
     out["Sx_brady"] = (rng.random(n_patients) < sigmoid(cfg.sx_brady_intercept + cfg.sx_tir_scale * (out["TIR_low_HR"] - cfg.sx_tir_midpoint))).astype(int)
 
-    out = out[["Pat_ID", "Visit", "Age", "Sex", "SBP", "HR", "TIR_low_sys", "TIR_low_HR", "K", "Cr", "GFR", "Sx_hypot", "Sx_brady", "RAASi", "BB", "MRA", "SGLT2i"]]
+    out = out[["Pat_ID", "Visit", "Age", "Sex", "SBP", "HR", "TIR_low_sys", "TIR_low_HR", "K", "Cr", "Cr_pct_ch", "GFR", "Sx_hypot", "Sx_brady", "RAASi", "BB", "MRA", "SGLT2i"]]
+
+    # Display/output formatting: vitals as whole numbers, labs and renal data to one decimal.
+    out["SBP"] = out["SBP"].round(0).astype(int)
+    out["HR"] = out["HR"].round(0).astype(int)
+    out["TIR_low_sys"] = out["TIR_low_sys"].round(0).astype(int)
+    out["TIR_low_HR"] = out["TIR_low_HR"].round(0).astype(int)
+    out["K"] = out["K"].round(1)
+    out["Cr"] = out["Cr"].round(1)
+    out["Cr_pct_ch"] = out["Cr_pct_ch"].round(1)
+    out["GFR"] = out["GFR"].round(1)
 
     if save_csv:
         out.to_csv("visit_table.csv", index=False)
@@ -231,7 +242,7 @@ def simulate_visit1(n_patients=10, cfg=None, save_csv=True, return_latent=False)
             tmp[["patient_id", "datetime", "sbp_home", "hr_home"]].to_csv("home_readings.csv", index=False)
 
     if return_latent:
-        latent = pd.DataFrame({"Pat_ID": ids, "Cr0": cr0, "eGFR0": egfr0})
+        latent = pd.DataFrame({"Pat_ID": ids, "Cr0": cr0, "Cr_prior": cr0, "eGFR0": egfr0})
         return out, home_df, latent
     return out, home_df
 

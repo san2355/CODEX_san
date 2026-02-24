@@ -28,6 +28,7 @@ OUTPUT_COLUMNS = [
     "TIR_low_HR",
     "K",
     "Cr",
+    "Cr_pct_ch",
     "GFR",
     "Sx_hypot",
     "Sx_brady",
@@ -107,6 +108,7 @@ def simulate_visit1(n_patients=10, cfg=None, save_csv=True, return_latent=False)
             "K": k,
             "Cr": cr,
             "GFR": gfr,
+            "Cr_pct_ch": 100.0 * (cr - baseline["Cr0"]) / baseline["Cr0"],
             "RAASi": meds["RAASi"],
             "BB": meds["BB"],
             "MRA": meds["MRA"],
@@ -130,7 +132,17 @@ def simulate_visit1(n_patients=10, cfg=None, save_csv=True, return_latent=False)
     out = out[OUTPUT_COLUMNS]
 
     if save_csv:
-        out.to_csv("visit_table.csv", index=False)
+        out_save = out.copy()
+        # Display/output formatting: vitals as whole numbers, labs and renal metrics to one decimal.
+        out_save["SBP"] = out_save["SBP"].round(0).astype(int)
+        out_save["HR"] = out_save["HR"].round(0).astype(int)
+        out_save["TIR_low_sys"] = out_save["TIR_low_sys"].round(0).astype(int)
+        out_save["TIR_low_HR"] = out_save["TIR_low_HR"].round(0).astype(int)
+        out_save["K"] = out_save["K"].round(1)
+        out_save["Cr"] = out_save["Cr"].round(1)
+        out_save["Cr_pct_ch"] = out_save["Cr_pct_ch"].round(1)
+        out_save["GFR"] = out_save["GFR"].round(1)
+        out_save.to_csv("visit_table.csv", index=False)
         if not home_df.empty:
             home_save = home_df.copy()
             home_save["datetime"] = pd.to_datetime("2025-01-01") + pd.to_timedelta(home_save["day"] - 1, unit="D")
@@ -144,6 +156,7 @@ def simulate_visit1(n_patients=10, cfg=None, save_csv=True, return_latent=False)
             {
                 "Pat_ID": pat_ids,
                 "Cr0": baseline["Cr0"],
+                "Cr_prior": baseline["Cr0"],
                 "eGFR0": baseline["eGFR0"],
             }
         )

@@ -90,4 +90,14 @@ class SimulatorConfig:
     sx_tir_scale: float = 0.11
     sx_tir_midpoint: float = 10.0
 
+
+    # Doctor Brain protocol thresholds
+    TIR_HI: float = 10.0
+    K_HOLD: float = 5.5
+    K_MRA_INIT: float = 5.0
+    K_MRA_UP: float = 5.0
+    GFR_MRA_MIN: float = 30.0
+    GFR_SGLT2_MIN: float = 25.0
+    CR_PCT_HOLD: float = 50.0
+
     visit_number: int = 1

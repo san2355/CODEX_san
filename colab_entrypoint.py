@@ -7,7 +7,14 @@ from hfref_simulator.simulate_visit1 import calibration_report, simulate_visit1
 cfg = SimulatorConfig(seed=42)
 df, home_df = simulate_visit1(n_patients=10, cfg=cfg, save_csv=True)
 
-print(df.head())
+show_df = df.copy()
+for col in ["SBP", "HR", "TIR_low_sys", "TIR_low_HR"]:
+    if col in show_df.columns:
+        show_df[col] = show_df[col].round(0).astype(int)
+for col in ["K", "Cr", "GFR"]:
+    if col in show_df.columns:
+        show_df[col] = show_df[col].round(1)
+print(show_df.head())
 print("\nSummary stats")
 print("Mean SBP:", round(df["SBP"].mean(), 1))
 print("Mean HR:", round(df["HR"].mean(), 1))
