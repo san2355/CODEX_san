@@ -136,12 +136,16 @@ def recommend_sequence_titration(row, cfg):
             return med, +1, f"initiation_priority_order: {med} is first zero-dose pillar"
 
     # Deliverable rule: if all meds are >=1, up-titrate the first in order
-    # at the lowest current dose among submaximal (<4) pillars.
-    submaximal_meds = [med for med in order if 1 <= doses[med] < 4]
+    # at the lowest current dose among submaximal pillars.
+    # Dose ceilings: RAASi/BB/MRA max 4; SGLT2i is binary and max 1.
+    max_dose_by_med = {"RAASi": 4, "BB": 4, "MRA": 4, "SGLT2i": 1}
+    submaximal_meds = [
+        med for med in order if 1 <= doses[med] < max_dose_by_med[med]
+    ]
     if submaximal_meds:
         lowest_dose = min(doses[med] for med in submaximal_meds)
         for med in order:
-            if doses[med] == lowest_dose and doses[med] < 4:
+            if med in submaximal_meds and doses[med] == lowest_dose:
                 return med, +1, (
                     f"uptitration_priority_order: {med} is first in order at lowest submaximal dose"
                 )
